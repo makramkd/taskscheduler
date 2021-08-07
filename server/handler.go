@@ -52,8 +52,10 @@ func (h *TaskHandler) GetLatestTaskExecutionOutput(c *gin.Context) {
 	completedAt := time.Time{}
 	if err := row.Scan(taskOutputs, &completedAt); err == sql.ErrNoRows {
 		c.AbortWithError(http.StatusNotFound, err)
+		return
 	} else if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, err)
+		return
 	}
 
 	c.JSON(http.StatusOK, &api.LatestOutputResponse{
@@ -79,6 +81,7 @@ func (h *TaskHandler) MarkTaskComplete(c *gin.Context) {
 	})
 	if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, err)
+		return
 	}
 	defer lock.Release(ctx)
 
@@ -86,20 +89,24 @@ func (h *TaskHandler) MarkTaskComplete(c *gin.Context) {
 	saddResp := h.RedisClient.SAdd(ctx, key, jsonString(model))
 	if saddResp.Err() != nil {
 		c.AbortWithError(http.StatusInternalServerError, saddResp.Err())
+		return
 	}
 
 	setSize := h.RedisClient.SCard(ctx, key)
 	if setSize.Err() != nil {
 		c.AbortWithError(http.StatusInternalServerError, setSize.Err())
+		return
 	}
 
 	if setSize.Val() == int64(len(h.AvailableServers)) {
 		members := h.RedisClient.SMembers(ctx, key)
 		if members.Err() != nil {
 			c.AbortWithError(http.StatusInternalServerError, members.Err())
+			return
 		}
 		if err := h.writeToDB(ctx, taskID, members); err != nil {
 			c.AbortWithError(http.StatusInternalServerError, err)
+			return
 		}
 
 		// reset set to empty since we want to start from scratch with a new set
