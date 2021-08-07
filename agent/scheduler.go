@@ -4,19 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/makramkd/taskscheduler/api"
+	"github.com/pkg/errors"
 )
 
+// Scheduler manages jobs and coordinates sending their output to the
+// taskscheduler server.
 type Scheduler struct {
 	ctx           context.Context
 	finishedJobs  chan *JobStatus
@@ -45,7 +48,6 @@ func (s *Scheduler) ScheduleTask(taskID, command, frequency string) {
 			ticker := time.NewTicker(duration)
 			select {
 			case <-ticker.C:
-				log.Printf("running command: %s", command)
 				s.runScheduledCommand(taskID, command)
 			case <-s.ctx.Done():
 				return
@@ -57,21 +59,13 @@ func (s *Scheduler) ScheduleTask(taskID, command, frequency string) {
 func (s *Scheduler) runScheduledCommand(taskID, command string) {
 	log.Printf("running job: %s", command)
 
-	commandSplit := strings.Split(command, " ")
-	log.Printf("command split: %v", commandSplit)
-	cmnd := exec.Command(commandSplit[0], commandSplit[1:]...)
-	stdoutFile, err := ioutil.TempFile("", taskID)
+	cmnd, stdout, stderr, err := buildCommand(command, taskID)
 	if err != nil {
-		log.Printf("could not create temporary file for stdout: %v", err)
+		log.Printf("error creating command: %v", err)
 		return
 	}
-	cmnd.Stdout = stdoutFile
-	stderrFile, err := ioutil.TempFile("", taskID)
-	if err != nil {
-		log.Printf("could not create temporary file for stderr: %v", err)
-		return
-	}
-	cmnd.Stderr = stderrFile
+	defer os.Remove(stdout.Name())
+	defer os.Remove(stderr.Name())
 
 	err = cmnd.Run()
 	if err != nil && !errors.Is(err, &exec.ExitError{}) {
@@ -81,15 +75,14 @@ func (s *Scheduler) runScheduledCommand(taskID, command string) {
 
 	log.Printf("command '%s' ran with status %v", command, err)
 
-	// go back to the beginning of the files so that we read something
-	// TODO: should we just read to a string here?
-	stdoutFile.Seek(0, io.SeekStart)
-	stderrFile.Seek(0, io.SeekStart)
+	// go back to the beginning of the files so that we read something.
+	stdout.Seek(0, io.SeekStart)
+	stderr.Seek(0, io.SeekStart)
 
 	s.finishedJobs <- &JobStatus{
 		TaskID: taskID,
-		Stdout: stdoutFile,
-		Stderr: stderrFile,
+		Stdout: readCommandOutput(stdout),
+		Stderr: readCommandOutput(stderr),
 	}
 }
 
@@ -109,22 +102,10 @@ func (s *Scheduler) updateTaskState(jobStatus *JobStatus) {
 		Timeout: 10 * time.Second,
 	}
 
-	stdout, err := ioutil.ReadAll(jobStatus.Stdout)
-	if err != nil {
-		log.Printf("error reading stdout: %v", err)
-		return // todo: should return or continue?
-	}
-
-	stderr, err := ioutil.ReadAll(jobStatus.Stderr)
-	if err != nil {
-		log.Printf("error reading stderr: %v", err)
-		return // todo: should return or continue?
-	}
-
 	req := &api.CompleteTaskRequest{
 		AgentID: s.agentID,
-		Stdout:  string(stdout),
-		Stderr:  string(stderr),
+		Stdout:  jobStatus.Stdout,
+		Stderr:  jobStatus.Stderr,
 	}
 	encoded, err := json.Marshal(req)
 	if err != nil {
@@ -144,6 +125,36 @@ func (s *Scheduler) updateTaskState(jobStatus *JobStatus) {
 
 type JobStatus struct {
 	TaskID string
-	Stdout io.Reader
-	Stderr io.Reader
+	Stdout string
+	Stderr string
+}
+
+func buildCommand(command, taskID string) (cmnd *exec.Cmd, stdout *os.File, stderr *os.File, err error) {
+	commandSplit := strings.Split(command, " ")
+	cmnd = exec.Command(commandSplit[0], commandSplit[1:]...)
+
+	// redirect stdout and stderr so that we can read them later.
+	stdout, err = ioutil.TempFile("", taskID)
+	if err != nil {
+		log.Printf("could not create temporary file for stdout: %v", err)
+		return nil, nil, nil, errors.Wrap(err, "could not create temporary file for stdout")
+	}
+	cmnd.Stdout = stdout
+	stderr, err = ioutil.TempFile("", taskID)
+	if err != nil {
+		log.Printf("could not create temporary file for stderr: %v", err)
+		return nil, nil, nil, errors.Wrap(err, "could not create a temporary file for stderr")
+	}
+	cmnd.Stderr = stderr
+
+	return
+}
+
+func readCommandOutput(r io.Reader) (output string) {
+	data, err := ioutil.ReadAll(r)
+	if err != nil {
+		output = fmt.Sprintf("error reading output: %v", err)
+		return
+	}
+	return string(data)
 }
