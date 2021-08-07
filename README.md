@@ -81,7 +81,8 @@ Create a scheduled, periodic task.
 
 #### Request Body
 * `command` (*Required*): The command to be executed.
-* `frequency` (*Required*): The frequency at which the given command is executed.
+* `frequency` (*Required*): The frequency at which the given command is executed. The frequency
+must be of the form `every <integer> (seconds|minutes|hours)`, otherwise the task will not be created successfully.
 
 #### Response
 * `command_id`: A globally unique identifier representing the task that was scheduled, if the task
