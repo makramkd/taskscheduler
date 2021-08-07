@@ -1,7 +1,64 @@
+# Table of Contents
+
+* [taskscheduler](#taskscheduler)
+   * [Getting Started](#getting-started)
+   * [Architecture](#architecture)
+   * [Scheduler API](#scheduler-api)
+      * [Content Type](#content-type)
+      * [POST /api/v1/tasks/create](#post-apiv1taskscreate)
+         * [Request Body](#request-body)
+         * [Response](#response)
+      * [GET /api/v1/tasks/{task_id}/latest_output](#get-apiv1taskstask_idlatest_output)
+         * [Parameters](#parameters)
+         * [Returns](#returns)
+      * [POST /api/v1/tasks/{task_id}/complete](#post-apiv1taskstask_idcomplete)
+         * [Parameters](#parameters-1)
+         * [Request Body](#request-body-1)
+   * [Agent API](#agent-api)
+      * [POST /api/v1/tasks/schedule](#post-apiv1tasksschedule)
+         * [Request Body](#request-body-2)
 # taskscheduler
 
 `taskscheduler` is a service that executes scheduled tasks across many servers
 and collects the output of those tasks after the executions are completed.
+
+## Getting Started
+
+To get started, you can simply run the provided `docker-compose.yml`:
+
+```
+docker-compose up --build
+```
+
+This will start all the dependencies needed for the server and agent to run successfully.
+
+Once this happens, you can run the following in another shell:
+
+```bash
+curl --request POST \
+  --url http://localhost:8080/api/v1/tasks/create \
+  --header 'Content-Type: application/json' \
+  --data '{
+	"command": "echo hello world",
+	"frequency": "every 30 seconds"
+}'
+```
+
+The response from the server will be a UUID representing the task you just created.
+
+In approximately 30 seconds you can send another request to view the output of the task:
+
+```bash
+curl --request GET \
+  --url http://localhost:8080/api/v1/tasks/322f0be6-d276-489f-89eb-7662c4517885/latest_output
+```
+
+Note that the UUID in the URL path will be different for you. Make sure to replace it with the ID returned by the
+first `curl` command.
+
+To test how things could be with more agents running, you can add as many as you feel like to the `docker-compose.yml` file.
+Just make sure to have them listening on a different port since they're all running on the same machine, and to update
+the `AVAILABLE_SERVERS` environment variable for the taskscheduler server to specify that new agent.
 
 ## Architecture
 
