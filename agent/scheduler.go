@@ -99,12 +99,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case jobStatus := <-s.finishedJobs:
-			log.Printf("job finished: %s", jobStatus.TaskID)
-			stdout, _ := ioutil.ReadAll(jobStatus.Stdout)
-			log.Printf("stdout: %s", string(stdout))
-			stderr, _ := ioutil.ReadAll(jobStatus.Stderr)
-			log.Printf("stderr: %s", stderr)
-			// s.updateTaskState(jobStatus)
+			s.updateTaskState(jobStatus)
 		}
 	}
 }
@@ -126,7 +121,7 @@ func (s *Scheduler) updateTaskState(jobStatus *JobStatus) {
 		return // todo: should return or continue?
 	}
 
-	req := &api.UpdateTaskRequest{
+	req := &api.CompleteTaskRequest{
 		AgentID: s.agentID,
 		Stdout:  string(stdout),
 		Stderr:  string(stderr),
@@ -138,7 +133,7 @@ func (s *Scheduler) updateTaskState(jobStatus *JobStatus) {
 	}
 
 	_, err = client.Post(
-		fmt.Sprintf("%s/api/v1/tasks/%s/status", s.serverAddress, jobStatus.TaskID),
+		fmt.Sprintf("%s/api/v1/tasks/%s/complete", s.serverAddress, jobStatus.TaskID),
 		"application/json",
 		bytes.NewReader(encoded),
 	)
