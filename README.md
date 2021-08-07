@@ -18,18 +18,6 @@ execution, and output storage of each task,
 
 The content type of all requests and responses will be `application/json`.
 
-### `TaskStatus`
-
-The `TaskStatus` enumeration represents the status of a task that has been scheduled by
-`taskscheduler`. The possible values for the task are the following:
-
-* `TASK_INVALID`: the task is invalid for some reason - either the frequency provided doesn't
-conform to the expected format, which is the CRON expression format.
-* `TASK_RECEIVED`: the task has been successfully received and is awaiting scheduling.
-* `TASK_SCHEDULED`: the task has been successfully scheduled.
-* `TASK_EXECUTING`: the task is currently executing.
-* `TASK_COMPLETED_SUCCESS`: the task has completed execution with no errors.
-* `TASK_COMPLETED_ERROR`: the task has completed execution with errors.
 
 ### POST `/api/v1/tasks/create`
 
@@ -43,9 +31,9 @@ Response:
 * `command_id`: A globally unique identifier representing the task that was scheduled, if the task
 successfully passes verification (i.e the given command and frequency are valid).
 
-### GET `/api/v1/tasks/{task_id}/status`
+### GET `/api/v1/tasks/{task_id}/latest_output`
 
-Get the status of the latest execution of the task with the given task ID.
+Get the output of the latest execution of the task with the given task ID.
 
 Parameters:
 * `task_id`: Path parameter. This is a globally unique identifier representing a task scheduled by `taskscheduler`.
@@ -56,12 +44,12 @@ Returns:
 * `frequency`: The frequency at which the task is being executed.
 * `latest_complete_execution_timestamp`: The timestamp of the latest complete execution of this task. In the event that the
 task never completed execution, this will be `null`.
-* `stdout`: If the status of the task is `TASK_COMPLETED_SUCCESS`, this will hold the data piped to STDOUT by the task. Otherwise `null`.
-* `stderr`: If the status of the task is `TASK_COMPLETED_ERROR`, this will hold the data piped to STDERR by the task. Otherwise `null`.
+* `stdout`: This will hold the data piped to STDOUT by the task.
+* `stderr`: This will hold the data piped to STDERR by the task.
 
-### PUT `/api/v1/tasks/{task_id}/status`
+### POST `/api/v1/tasks/{task_id}/complete`
 
-Update the status of the given task.
+Mark the given task as complete from a worker.
 
 Parameters:
 * `task_id`: Path parameter. This is a globally unique identifier representing a task scheduled by `taskscheduler`.
