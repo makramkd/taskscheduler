@@ -3,3 +3,4 @@ Dockerfile_server
 docker-compose.yml
 .gitignore
 README.md
+db/

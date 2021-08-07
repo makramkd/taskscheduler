@@ -5,7 +5,9 @@ COPY . .
 RUN go install ./cmd/agent
 
 FROM alpine
+RUN apk add --no-cache bash
 RUN adduser --system agent_user
 USER agent_user
 COPY --from=build /go/bin/agent /opt/
+COPY sample_programs/prog.sh /opt/prog.sh
 CMD ["/opt/agent"]
