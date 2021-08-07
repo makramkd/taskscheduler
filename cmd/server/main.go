@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,7 @@ type config struct {
 	DatabaseDSN      string   `envconfig:"DATABASE_DSN" default:"postgres://tasksched_rw:devsecret@localhost/taskdb?sslmode=disable"`
 	RedisAddress     string   `envconfig:"REDIS_ADDRESS" default:"127.0.0.1:6379"`
 	AvailableServers []string `envconfig:"AVAILABLE_SERVERS" default:"http://localhost:8081"`
+	Port             int      `envconfig:"PORT" default:"8080"`
 }
 
 func main() {
@@ -52,5 +54,5 @@ func main() {
 		handler.MarkTaskComplete(c.Writer, c.Request)
 	})
 
-	r.Run(":8080")
+	r.Run(fmt.Sprintf(":%d", c.Port))
 }
