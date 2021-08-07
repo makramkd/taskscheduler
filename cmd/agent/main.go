@@ -34,9 +34,7 @@ func main() {
 		Scheduler: scheduler,
 	}
 	r := gin.Default()
-	r.POST("/api/v1/tasks/schedule", func(c *gin.Context) {
-		handler.ScheduleTask(c.Writer, c.Request)
-	})
+	r.POST("/api/v1/tasks/schedule", handler.ScheduleTask)
 
 	r.Run(fmt.Sprintf(":%d", c.Port))
 }
