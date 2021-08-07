@@ -1,0 +1,11 @@
+FROM golang:1.16-alpine AS build
+WORKDIR /go/src/github.com/makramkd/taskscheduler
+
+COPY . .
+RUN go install ./cmd/agent
+
+FROM alpine
+RUN adduser --system agent_user
+USER agent_user
+COPY --from=build /go/bin/agent /opt/
+CMD ["/opt/agent"]

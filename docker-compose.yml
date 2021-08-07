@@ -2,7 +2,7 @@ volumes:
     taskscheduler_pgdata:
 
 services:
-    postgres:
+    db:
         build:
             context: ./db
         environment:
@@ -18,3 +18,34 @@ services:
         image: redis
         ports:
             - "6379:6379"
+
+    task_agent_1:
+        build:
+            context: .
+            dockerfile: Dockerfile_agent
+        environment:
+            TASK_SERVER_ADDRESS: "http://task_server:8080"
+            PORT: 8081
+
+    task_agent_2:
+        build:
+            context: .
+            dockerfile: Dockerfile_agent
+        environment:
+            TASK_SERVER_ADDRESS: "http://task_server:8080"
+            PORT: 8082
+
+    task_server:
+        build:
+            context: .
+            dockerfile: Dockerfile_server
+        environment:
+            AVAILABLE_SERVERS: "http://task_agent_1:8081,http://task_agent_2:8082"
+            DATABASE_DSN: "postgres://tasksched_rw:devsecret@db/taskdb?sslmode=disable"
+            REDIS_ADDRESS: "redis:6379"
+            PORT: 8080
+        depends_on:
+            - db
+            - redis
+        ports:
+            - "8080:8080"

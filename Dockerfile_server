@@ -1,0 +1,11 @@
+FROM golang:1.16-alpine AS build
+WORKDIR /go/src/github.com/makramkd/taskscheduler
+
+COPY . .
+RUN go install ./cmd/server
+
+FROM alpine
+RUN adduser --system server_user
+USER server_user
+COPY --from=build /go/bin/server /opt/
+CMD ["/opt/server"]
