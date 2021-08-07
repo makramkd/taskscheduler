@@ -15,25 +15,13 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/makramkd/taskscheduler/api"
-	"github.com/pkg/errors"
 )
 
-func NewTaskHandler(
-	db *sql.DB,
-	redisClient *redis.Client,
-	availableServers []string) *TaskHandler {
-	return &TaskHandler{
-		db:               db,
-		availableServers: availableServers,
-		redisClient:      redisClient,
-	}
-}
-
-// TaskHandler handles task creation and status updating and reading.
+// TaskHandler provides a CRUD API for managing tasks on remote machines.
 type TaskHandler struct {
-	availableServers []string
-	redisClient      *redis.Client
-	db               *sql.DB
+	AvailableServers []string
+	RedisClient      *redis.Client
+	DB               *sql.DB
 }
 
 func (h *TaskHandler) CreateTask(c *gin.Context) {
@@ -56,19 +44,16 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 func (h *TaskHandler) GetLatestTaskExecutionOutput(c *gin.Context) {
 	taskID := c.Params.ByName("task_id")
 
-	row := h.db.QueryRow(
+	row := h.DB.QueryRow(
 		`SELECT outputs, completed_at FROM task_outputs WHERE task_id = $1 ORDER BY completed_at DESC LIMIT 1`,
 		taskID,
 	)
 	taskOutputs := &api.TaskOutputs{}
 	completedAt := time.Time{}
 	if err := row.Scan(taskOutputs, &completedAt); err == sql.ErrNoRows {
-		c.Writer.WriteHeader(http.StatusNotFound)
-		return
+		c.AbortWithError(http.StatusNotFound, err)
 	} else if err != nil {
-		log.Printf("unable to scan row: %v", err)
-		c.Writer.WriteHeader(http.StatusInternalServerError)
-		return
+		c.AbortWithError(http.StatusInternalServerError, err)
 	}
 
 	c.JSON(http.StatusOK, &api.LatestOutputResponse{
@@ -88,26 +73,28 @@ func (h *TaskHandler) MarkTaskComplete(c *gin.Context) {
 
 	// synchronize all updates to the set that stores the intermediate state
 	// using a distributed lock.
-	locker := redislock.New(h.redisClient)
-	lock, err := h.acquireLock(ctx, locker, taskID)
+	locker := redislock.New(h.RedisClient)
+	lock, err := locker.Obtain(ctx, fmt.Sprintf("lock-%s", taskID), time.Second, &redislock.Options{
+		RetryStrategy: redislock.LinearBackoff(5 * time.Millisecond),
+	})
 	if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, err)
 	}
 	defer lock.Release(ctx)
 
 	key := fmt.Sprintf("%s_done", taskID)
-	saddResp := h.redisClient.SAdd(ctx, key, jsonString(model))
+	saddResp := h.RedisClient.SAdd(ctx, key, jsonString(model))
 	if saddResp.Err() != nil {
 		c.AbortWithError(http.StatusInternalServerError, saddResp.Err())
 	}
 
-	setSize := h.redisClient.SCard(ctx, key)
+	setSize := h.RedisClient.SCard(ctx, key)
 	if setSize.Err() != nil {
 		c.AbortWithError(http.StatusInternalServerError, setSize.Err())
 	}
 
-	if setSize.Val() == int64(len(h.availableServers)) {
-		members := h.redisClient.SMembers(ctx, key)
+	if setSize.Val() == int64(len(h.AvailableServers)) {
+		members := h.RedisClient.SMembers(ctx, key)
 		if members.Err() != nil {
 			c.AbortWithError(http.StatusInternalServerError, members.Err())
 		}
@@ -117,14 +104,12 @@ func (h *TaskHandler) MarkTaskComplete(c *gin.Context) {
 
 		// reset set to empty since we want to start from scratch with a new set
 		// the next time around.
-		h.redisClient.Del(ctx, key)
+		h.RedisClient.Del(ctx, key)
 	}
-
-	c.Writer.WriteHeader(http.StatusOK)
 }
 
 func (h *TaskHandler) writeToDB(ctx context.Context, taskID string, members *redis.StringSliceCmd) error {
-	tx, err := h.db.BeginTx(ctx, &sql.TxOptions{
+	tx, err := h.DB.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelDefault,
 		ReadOnly:  false,
 	})
@@ -163,7 +148,7 @@ func (h *TaskHandler) scheduleTaskOnAgents(taskID, command, frequency string) {
 	// schedule the task on the configured servers.
 	// it's possible that we might still be executing this loop
 	// and start receiving MarkTaskComplete requests.
-	for _, serverURL := range h.availableServers {
+	for _, serverURL := range h.AvailableServers {
 		_, err := client.Post(
 			fmt.Sprintf("%s/api/v1/tasks/schedule", serverURL),
 			"application/json",
@@ -175,28 +160,4 @@ func (h *TaskHandler) scheduleTaskOnAgents(taskID, command, frequency string) {
 			continue
 		}
 	}
-}
-
-func (h *TaskHandler) acquireLock(
-	ctx context.Context,
-	locker *redislock.Client,
-	taskID string,
-) (*redislock.Lock, error) {
-	var lock *redislock.Lock
-	var lockErr error
-	lockKey := fmt.Sprintf("lock-%s", taskID)
-	// TODO: number of retries - too small?
-	for i := 0; i < 10; i++ {
-		lock, lockErr = locker.Obtain(ctx, lockKey, 1*time.Second, nil)
-		if lockErr == redislock.ErrNotObtained {
-			// someone else might be holding the lock, wait a bit and try again
-			time.Sleep(5 * time.Millisecond)
-		} else if lockErr != nil {
-			return nil, errors.Wrap(lockErr, "error while obtaining redis lock")
-		} else if lockErr == nil {
-			// successfully acquired the lock
-			return lock, nil
-		}
-	}
-	return nil, errors.New("could not grab lock after retries")
 }

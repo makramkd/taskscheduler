@@ -25,11 +25,11 @@ func main() {
 		log.Fatalf("failed to parse config: %v", err)
 	}
 
-	client := redis.NewClient(&redis.Options{
+	redisClient := redis.NewClient(&redis.Options{
 		Network: "tcp",
 		Addr:    c.RedisAddress,
 	})
-	defer client.Close()
+	defer redisClient.Close()
 
 	db, err := sql.Open("postgres", c.DatabaseDSN)
 	if err != nil {
@@ -37,11 +37,11 @@ func main() {
 	}
 	defer db.Close()
 
-	handler := server.NewTaskHandler(
-		db,
-		client,
-		c.AvailableServers,
-	)
+	handler := &server.TaskHandler{
+		AvailableServers: c.AvailableServers,
+		RedisClient:      redisClient,
+		DB:               db,
+	}
 
 	r := gin.Default()
 	r.POST("/api/v1/tasks/create", handler.CreateTask)
