@@ -35,12 +35,20 @@ services:
             TASK_SERVER_ADDRESS: "http://task_server:8080"
             PORT: 8082
 
+    task_agent_3:
+        build:
+            context: .
+            dockerfile: Dockerfile_agent
+        environment:
+            TASK_SERVER_ADDRESS: "http://task_server:8080"
+            PORT: 8083
+
     task_server:
         build:
             context: .
             dockerfile: Dockerfile_server
         environment:
-            AVAILABLE_SERVERS: "http://task_agent_1:8081,http://task_agent_2:8082"
+            AVAILABLE_SERVERS: "http://task_agent_1:8081,http://task_agent_2:8082,http://task_agent_3:8083"
             DATABASE_DSN: "postgres://tasksched_rw:devsecret@db/taskdb?sslmode=disable"
             REDIS_ADDRESS: "redis:6379"
             PORT: 8080
