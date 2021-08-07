@@ -1,11 +1,10 @@
 package server
 
 import (
-	"database/sql/driver"
 	"encoding/json"
-	"errors"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/makramkd/taskscheduler/api"
 )
 
 func jsonString(i interface{}) string {
@@ -13,35 +12,12 @@ func jsonString(i interface{}) string {
 	return string(b)
 }
 
-type TaskOutput struct {
-	AgentID string `json:"agent_id"`
-	Stdout  string `json:"stdout,omitempty"`
-	Stderr  string `json:"stderr,omitempty"`
-}
-
-type TaskOutputs struct {
-	Outputs []*TaskOutput
-}
-
-func (t TaskOutputs) Value() (driver.Value, error) {
-	return json.Marshal(t)
-}
-
-func (t *TaskOutputs) Scan(value interface{}) error {
-	b, ok := value.([]byte)
-	if !ok {
-		return errors.New("type assertion to []byte failed")
-	}
-
-	return json.Unmarshal(b, t)
-}
-
-func setMembersToOutput(members *redis.StringSliceCmd) TaskOutputs {
-	ret := TaskOutputs{
-		Outputs: []*TaskOutput{},
+func setMembersToOutput(members *redis.StringSliceCmd) api.TaskOutputs {
+	ret := api.TaskOutputs{
+		Outputs: []*api.TaskOutput{},
 	}
 	for _, member := range members.Val() {
-		taskOutput := &TaskOutput{}
+		taskOutput := &api.TaskOutput{}
 		json.Unmarshal([]byte(member), taskOutput)
 		ret.Outputs = append(ret.Outputs, taskOutput)
 	}

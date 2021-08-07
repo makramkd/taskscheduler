@@ -1,5 +1,11 @@
 package api
 
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"errors"
+)
+
 // ---- Server API ---
 
 // CreateTaskRequest is used to create a task from the server API.
@@ -14,8 +20,36 @@ type CreateTaskResponse struct {
 
 type CompleteTaskRequest struct {
 	AgentID string `json:"agent_id"`
-	Stdout  string `json:"stdout"`
-	Stderr  string `json:"stderr"`
+	Stdout  string `json:"stdout,omitempty"`
+	Stderr  string `json:"stderr,omitempty"`
+}
+
+type TaskOutput struct {
+	AgentID string `json:"agent_id"`
+	Stdout  string `json:"stdout,omitempty"`
+	Stderr  string `json:"stderr,omitempty"`
+}
+
+type TaskOutputs struct {
+	Outputs []*TaskOutput `json:"outputs"`
+}
+
+func (t TaskOutputs) Value() (driver.Value, error) {
+	return json.Marshal(t)
+}
+
+func (t *TaskOutputs) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+
+	return json.Unmarshal(b, t)
+}
+
+type LatestOutputResponse struct {
+	CompletionTime string        `json:"completion_time"`
+	Outputs        []*TaskOutput `json:"outputs"`
 }
 
 // ---- Agent API ----
