@@ -35,7 +35,7 @@ This will start all the dependencies needed for the server and agent to run succ
 Once this happens, you can run the following in another shell:
 
 ```bash
-curl --request POST \
+curl -i --request POST \
   --url http://localhost:8080/api/v1/tasks/create \
   --header 'Content-Type: application/json' \
   --data '{
@@ -49,7 +49,7 @@ The response from the server will be a UUID representing the task you just creat
 In approximately 30 seconds you can send another request to view the output of the task:
 
 ```bash
-curl --request GET \
+curl -i --request GET \
   --url http://localhost:8080/api/v1/tasks/322f0be6-d276-489f-89eb-7662c4517885/latest_output
 ```
 
