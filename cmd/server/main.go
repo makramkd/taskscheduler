@@ -44,15 +44,9 @@ func main() {
 	)
 
 	r := gin.Default()
-	r.POST("/api/v1/tasks/create", func(c *gin.Context) {
-		handler.CreateTask(c.Writer, c.Request)
-	})
-	r.GET("/api/v1/tasks/:task_id/latest_output", func(c *gin.Context) {
-		handler.GetLatestTaskExecutionOutput(c.Writer, c.Request)
-	})
-	r.POST("/api/v1/tasks/:task_id/complete", func(c *gin.Context) {
-		handler.MarkTaskComplete(c.Writer, c.Request)
-	})
+	r.POST("/api/v1/tasks/create", handler.CreateTask)
+	r.GET("/api/v1/tasks/:task_id/latest_output", handler.GetLatestTaskExecutionOutput)
+	r.POST("/api/v1/tasks/:task_id/complete", handler.MarkTaskComplete)
 
 	r.Run(fmt.Sprintf(":%d", c.Port))
 }

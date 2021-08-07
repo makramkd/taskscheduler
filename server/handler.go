@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/bsm/redislock"
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/makramkd/taskscheduler/api"
@@ -35,10 +35,10 @@ type TaskHandler struct {
 	db               *sql.DB
 }
 
-func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
+func (h *TaskHandler) CreateTask(c *gin.Context) {
 	model := &api.CreateTaskRequest{}
-	if err := json.NewDecoder(r.Body).Decode(model); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+	if err := json.NewDecoder(c.Request.Body).Decode(model); err != nil {
+		c.Writer.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
@@ -53,69 +53,70 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	response := &api.CreateTaskResponse{
 		TaskID: taskID,
 	}
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if err := json.NewEncoder(c.Writer).Encode(response); err != nil {
+		c.Writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
+	c.Writer.WriteHeader(http.StatusCreated)
 }
 
-func (h *TaskHandler) GetLatestTaskExecutionOutput(w http.ResponseWriter, r *http.Request) {
-	// TODO: improve. maybe use a library instead.
-	split := strings.Split(r.URL.Path, "/")
-	taskID := split[len(split)-2]
+func (h *TaskHandler) GetLatestTaskExecutionOutput(c *gin.Context) {
+	taskID := c.Params.ByName("task_id")
 
 	row := h.db.QueryRow(
 		`SELECT outputs, completed_at FROM task_outputs WHERE task_id = $1 ORDER BY completed_at DESC LIMIT 1`,
 		taskID,
 	)
-	taskOutputs := &TaskOutputs{}
+	taskOutputs := &api.TaskOutputs{}
 	completedAt := time.Time{}
 	if err := row.Scan(taskOutputs, &completedAt); err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusNotFound)
+		c.Writer.WriteHeader(http.StatusNotFound)
 		return
 	} else if err != nil {
 		log.Printf("unable to scan row: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		c.Writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(taskOutputs); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	response := &api.LatestOutputResponse{
+		CompletionTime: completedAt.Format(time.RFC3339),
+		Outputs:        taskOutputs.Outputs,
+	}
+	if err := json.NewEncoder(c.Writer).Encode(response); err != nil {
+		c.Writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	c.Writer.WriteHeader(http.StatusOK)
 }
 
-func (h *TaskHandler) MarkTaskComplete(w http.ResponseWriter, r *http.Request) {
+func (h *TaskHandler) MarkTaskComplete(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	model := &api.CompleteTaskRequest{}
-	if err := json.NewDecoder(r.Body).Decode(model); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+	if err := json.NewDecoder(c.Request.Body).Decode(model); err != nil {
+		c.Writer.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	// TODO: improve. maybe use a library instead.
-	split := strings.Split(r.URL.Path, "/")
-	taskID := split[len(split)-2]
+	taskID := c.Params.ByName("task_id")
 
 	// synchronize all updates to the set that stores the intermediate state
 	// using a distributed lock.
 	locker := redislock.New(h.redisClient)
 	var lock *redislock.Lock
 	var lockErr error
+	lockKey := fmt.Sprintf("lock-%s", taskID)
 	// TODO: number of retries - too small?
 	for i := 0; i < 10; i++ {
-		lock, lockErr = locker.Obtain(ctx, "scheduler-lock", 1*time.Second, nil)
+		lock, lockErr = locker.Obtain(ctx, lockKey, 1*time.Second, nil)
 		if lockErr == redislock.ErrNotObtained {
 			// someone else might be holding the lock, wait a bit and try again
 			time.Sleep(5 * time.Millisecond)
 		} else if lockErr != nil {
 			log.Printf("other error while obtaining redis lock: %v", lockErr)
-			w.WriteHeader(http.StatusInternalServerError)
+			c.Writer.WriteHeader(http.StatusInternalServerError)
 			return
 		} else if lockErr == nil {
 			// successfully acquired the lock
@@ -128,26 +129,26 @@ func (h *TaskHandler) MarkTaskComplete(w http.ResponseWriter, r *http.Request) {
 	saddResp := h.redisClient.SAdd(ctx, key, jsonString(model))
 	if saddResp.Err() != nil {
 		log.Printf("could not add to set: %v", saddResp.Err())
-		w.WriteHeader(http.StatusInternalServerError)
+		c.Writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	setSize := h.redisClient.SCard(ctx, key)
 	if setSize.Err() != nil {
 		log.Printf("could not get set size: %v", setSize.Err())
-		w.WriteHeader(http.StatusInternalServerError)
+		c.Writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	if setSize.Val() == int64(len(h.availableServers)) {
 		members := h.redisClient.SMembers(ctx, key)
 		if members.Err() != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			c.Writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if err := h.writeToDB(ctx, taskID, members); err != nil {
 			log.Printf("error writing to DB: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
+			c.Writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -155,6 +156,8 @@ func (h *TaskHandler) MarkTaskComplete(w http.ResponseWriter, r *http.Request) {
 		// the next time around.
 		h.redisClient.Del(ctx, key)
 	}
+
+	c.Writer.WriteHeader(http.StatusOK)
 }
 
 func (h *TaskHandler) writeToDB(ctx context.Context, taskID string, members *redis.StringSliceCmd) error {
