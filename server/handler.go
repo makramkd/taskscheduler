@@ -105,15 +105,22 @@ func (h *TaskHandler) MarkTaskComplete(w http.ResponseWriter, r *http.Request) {
 	// synchronize all updates to the set that stores the intermediate state
 	// using a distributed lock.
 	locker := redislock.New(h.redisClient)
-	lock, err := locker.Obtain(ctx, "scheduler-lock", 1*time.Second, nil)
-	if err == redislock.ErrNotObtained {
-		log.Println("unable to obtain redis lock")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	} else if err != nil {
-		log.Printf("other error while obtaining redis lock: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	var lock *redislock.Lock
+	var lockErr error
+	// TODO: number of retries - too small?
+	for i := 0; i < 10; i++ {
+		lock, lockErr = locker.Obtain(ctx, "scheduler-lock", 1*time.Second, nil)
+		if lockErr == redislock.ErrNotObtained {
+			// someone else might be holding the lock, wait a bit and try again
+			time.Sleep(5 * time.Millisecond)
+		} else if lockErr != nil {
+			log.Printf("other error while obtaining redis lock: %v", lockErr)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		} else if lockErr == nil {
+			// successfully acquired the lock
+			break
+		}
 	}
 	defer lock.Release(ctx)
 
