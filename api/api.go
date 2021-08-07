@@ -12,7 +12,7 @@ type CreateTaskResponse struct {
 	TaskID string `json:"task_id"`
 }
 
-type UpdateTaskRequest struct {
+type CompleteTaskRequest struct {
 	AgentID string `json:"agent_id"`
 	Stdout  string `json:"stdout"`
 	Stderr  string `json:"stderr"`
