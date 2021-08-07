@@ -13,7 +13,7 @@ import (
 
 type config struct {
 	Port          int    `envconfig:"PORT" default:"8081"`
-	ServerAddress string `envconfig:"SERVER_ADDRESS" default:"localhost:8080"`
+	ServerAddress string `envconfig:"SERVER_ADDRESS" default:"http://localhost:8080"`
 }
 
 func main() {
